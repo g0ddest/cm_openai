@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"time"
@@ -130,48 +131,68 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, tableName string, id string, r
 		return err
 	}
 
-	item := map[string]*dynamodb.AttributeValue{
-		"id": {
-			S: aws.String(id),
-		},
-		"mp": {
-			S: aws.String("water_mp:" + id),
-		},
-		"organization": {
-			S: aws.String(openAIResp.Organization),
-		},
-		"short_description": {
-			S: aws.String(openAIResp.ShortDescription),
-		},
-		"event": {
-			S: aws.String(openAIResp.Event),
-		},
-		"event_start": {
-			S: aws.String(openAIResp.EventStart),
-		},
-	}
-
-	if openAIResp.EventStop != nil {
-		item["event_stop"] = &dynamodb.AttributeValue{
-			S: aws.String(*openAIResp.EventStop),
+	for i, address := range openAIResp.Addresses {
+		item := map[string]*dynamodb.AttributeValue{
+			"id": {
+				S: aws.String(id),
+			},
+			"mp": {
+				S: aws.String(fmt.Sprintf("water_mp:%s:%d", id, i+1)),
+			},
+			"organization": {
+				S: aws.String(openAIResp.Organization),
+			},
+			"short_description": {
+				S: aws.String(openAIResp.ShortDescription),
+			},
+			"event": {
+				S: aws.String(openAIResp.Event),
+			},
+			"event_start": {
+				S: aws.String(openAIResp.EventStart),
+			},
+			"city": {
+				S: aws.String(address.City),
+			},
+			"street_type": {
+				S: aws.String(address.StreetType),
+			},
+			"street": {
+				S: aws.String(address.Street),
+			},
 		}
-	}
 
-	addresses, err := json.Marshal(openAIResp.Addresses)
-	if err != nil {
-		return err
-	}
+		if openAIResp.EventStop != nil {
+			item["event_stop"] = &dynamodb.AttributeValue{
+				S: aws.String(*openAIResp.EventStop),
+			}
+		}
 
-	item["addresses"] = &dynamodb.AttributeValue{
-		S: aws.String(string(addresses)),
-	}
+		// Handle house numbers using StringSet
+		if len(address.House.Numbers) > 0 {
+			item["house_numbers"] = &dynamodb.AttributeValue{
+				SS: aws.StringSlice(address.House.Numbers),
+			}
+		}
 
-	_, err = dynamoSvc.PutItem(&dynamodb.PutItemInput{
-		TableName: aws.String(tableName),
-		Item:      item,
-	})
-	if err != nil {
-		return err
+		// Handle house ranges using StringSet
+		var rangeStrings []string
+		for _, r := range address.House.Ranges {
+			rangeStrings = append(rangeStrings, fmt.Sprintf("%s-%s", r[0], r[1]))
+		}
+		if len(rangeStrings) > 0 {
+			item["house_ranges"] = &dynamodb.AttributeValue{
+				SS: aws.StringSlice(rangeStrings),
+			}
+		}
+
+		_, err = dynamoSvc.PutItem(&dynamodb.PutItemInput{
+			TableName: aws.String(tableName),
+			Item:      item,
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
