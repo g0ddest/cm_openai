@@ -103,7 +103,7 @@ func handleMessage(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, cfg *config.Co
 
 	response = removeMarkdown(response)
 
-	err = saveToDynamoDB(dynamoSvc, cfg.DynamoDBTableName, m.ID, response)
+	err = saveToDynamoDB(dynamoSvc, sqsSvc, cfg.SQSEnrichQueueURL, cfg.DynamoDBTableName, m.ID, response)
 	if err != nil {
 		log.Printf("Error saving to DynamoDB: %v", err)
 		return
@@ -124,7 +124,7 @@ func removeMarkdown(input string) string {
 	return re.ReplaceAllString(input, "")
 }
 
-func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, tableName string, id string, response string) error {
+func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName string, tableName string, id string, response string) error {
 	var openAIResp OpenAIResponse
 	err := json.Unmarshal([]byte(response), &openAIResp)
 	if err != nil {
@@ -192,6 +192,36 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, tableName string, id string, r
 		})
 		if err != nil {
 			return err
+		}
+
+		enrichmentMsg := map[string]interface{}{
+			"id":                id,
+			"mp":                fmt.Sprintf("water_mp:%s:%d", id, i+1),
+			"organization":      openAIResp.Organization,
+			"short_description": openAIResp.ShortDescription,
+			"event":             openAIResp.Event,
+			"event_start":       openAIResp.EventStart,
+			"event_stop":        openAIResp.EventStop,
+			"city":              address.City,
+			"street_type":       address.StreetType,
+			"street":            address.Street,
+			"service":           "WATER",
+			"house_numbers":     address.House.Numbers,
+			"house_ranges":      rangeStrings,
+		}
+
+		msgBody, err := json.Marshal(enrichmentMsg)
+		if err != nil {
+			log.Printf("Error marshaling enrichment message: %v", err)
+			continue
+		}
+
+		_, err = sqsSvc.SendMessage(&sqs.SendMessageInput{
+			QueueUrl:    aws.String(queueName),
+			MessageBody: aws.String(string(msgBody)),
+		})
+		if err != nil {
+			log.Printf("Error sending enrichment message to SQS: %v", err)
 		}
 	}
 

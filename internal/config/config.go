@@ -7,6 +7,7 @@ import (
 type Config struct {
 	DynamoDBTableName  string `envconfig:"DYNAMODB_TABLE_NAME"`
 	SQSQueueURL        string `envconfig:"SQS_QUEUE_URL"`
+	SQSEnrichQueueURL  string `envconfig:"SQS_ENRICH_QUEUE_URL"`
 	AWSRegion          string `envconfig:"AWS_REGION"`
 	AWSAccessKeyID     string `envconfig:"AWS_ACCESS_KEY_ID"`
 	AWSSecretAccessKey string `envconfig:"AWS_SECRET_ACCESS_KEY"`
