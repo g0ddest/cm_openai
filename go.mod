@@ -1,4 +1,4 @@
-module cm_water_openai
+module cm_openai
 
 go 1.20
 

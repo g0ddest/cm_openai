@@ -1,8 +1,8 @@
 package main
 
 import (
-	"cm_water_openai/internal/config"
-	"cm_water_openai/internal/handlers"
+	"cm_openai/internal/config"
+	"cm_openai/internal/handlers"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net/http"

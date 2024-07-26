@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"time"
 
-	"cm_water_openai/internal/config"
-	"cm_water_openai/internal/openai"
+	"cm_openai/internal/config"
+	"cm_openai/internal/openai"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
@@ -95,7 +96,7 @@ func handleMessage(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, cfg *config.Co
 		return
 	}
 
-	response, err := openai.CallOpenAI(cfg.OpenAIAPIKey, m.RawMessage)
+	response, err := openai.CallOpenAI(cfg.OpenAIAPIKey, m.RawMessage, m.CreatedAt)
 	if err != nil {
 		log.Printf("Error calling OpenAI: %v", err)
 		return
@@ -103,7 +104,7 @@ func handleMessage(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, cfg *config.Co
 
 	response = removeMarkdown(response)
 
-	err = saveToDynamoDB(dynamoSvc, sqsSvc, cfg.SQSEnrichQueueURL, cfg.DynamoDBTableName, m.ID, response)
+	err = saveToDynamoDB(dynamoSvc, sqsSvc, cfg.SQSEnrichQueueURL, cfg.DynamoDBTableName, &m, response)
 	if err != nil {
 		log.Printf("Error saving to DynamoDB: %v", err)
 		return
@@ -124,7 +125,7 @@ func removeMarkdown(input string) string {
 	return re.ReplaceAllString(input, "")
 }
 
-func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName string, tableName string, id string, response string) error {
+func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName string, tableName string, message *Message, response string) error {
 	var openAIResp OpenAIResponse
 	err := json.Unmarshal([]byte(response), &openAIResp)
 	if err != nil {
@@ -132,12 +133,13 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName str
 	}
 
 	for i, address := range openAIResp.Addresses {
+		mp := fmt.Sprintf("%s_mp:%s:%d", strings.ToLower(message.Service), message.ID, i+1)
 		item := map[string]*dynamodb.AttributeValue{
 			"id": {
-				S: aws.String(id),
+				S: aws.String(message.ID),
 			},
 			"mp": {
-				S: aws.String(fmt.Sprintf("water_mp:%s:%d", id, i+1)),
+				S: aws.String(mp),
 			},
 			"organization": {
 				S: aws.String(openAIResp.Organization),
@@ -159,6 +161,9 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName str
 			},
 			"street": {
 				S: aws.String(address.Street),
+			},
+			"service": {
+				S: aws.String(message.Service),
 			},
 		}
 
@@ -195,8 +200,8 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName str
 		}
 
 		enrichmentMsg := map[string]interface{}{
-			"id":                id,
-			"mp":                fmt.Sprintf("water_mp:%s:%d", id, i+1),
+			"id":                message.ID,
+			"mp":                mp,
 			"organization":      openAIResp.Organization,
 			"short_description": openAIResp.ShortDescription,
 			"event":             openAIResp.Event,
@@ -205,7 +210,7 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName str
 			"city":              address.City,
 			"street_type":       address.StreetType,
 			"street":            address.Street,
-			"service":           "WATER",
+			"service":           message.Service,
 			"house_numbers":     address.House.Numbers,
 			"house_ranges":      rangeStrings,
 		}
