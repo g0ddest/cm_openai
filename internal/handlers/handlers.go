@@ -183,7 +183,12 @@ func saveToDynamoDB(dynamoSvc *dynamodb.DynamoDB, sqsSvc *sqs.SQS, queueName str
 		// Handle house ranges using StringSet
 		var rangeStrings []string
 		for _, r := range address.House.Ranges {
-			rangeStrings = append(rangeStrings, fmt.Sprintf("%s-%s", r[0], r[1]))
+			if len(r) == 2 {
+				rangeStrings = append(rangeStrings, fmt.Sprintf("%s-%s", r[0], r[1]))
+			}
+			if len(r) == 1 {
+				rangeStrings = append(rangeStrings, fmt.Sprintf("%s-%s", r[0], ""))
+			}
 		}
 		if len(rangeStrings) > 0 {
 			item["house_ranges"] = &dynamodb.AttributeValue{
